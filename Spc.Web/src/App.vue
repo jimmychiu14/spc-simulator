@@ -66,6 +66,9 @@ import { GridComponent, TooltipComponent, MarkLineComponent } from 'echarts/comp
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, MarkLineComponent])
 
+// API base URL - uses cloud API in production, local in dev
+const API_BASE = import.meta.env.VITE_API_URL || 'https://spc-api-ap7g.onrender.com'
+
 const machineId = ref('M001')
 const itemName = ref('Thickness')
 const loading = ref(false)
@@ -75,18 +78,19 @@ const chartData = ref([])
 const simulate = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/spc/simulate', {
+    const res = await axios.get(`${API_BASE}/api/spc/simulate`, {
       params: { machineId: machineId.value, itemName: itemName.value }
     })
     lastResult.value = res.data
     
     // Fetch all data for chart
-    const dataRes = await axios.get('/api/spc/data', {
+    const dataRes = await axios.get(`${API_BASE}/api/spc/data`, {
       params: { machineId: machineId.value, itemName: itemName.value, limit: 30 }
     })
     chartData.value = dataRes.data
   } catch (e) {
     console.error(e)
+    alert('API Error: ' + e.message)
   } finally {
     loading.value = false
   }

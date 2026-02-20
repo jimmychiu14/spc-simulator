@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'https://spc-api-ap7g.onrender.com',
         changeOrigin: true
       }
     }
