@@ -157,20 +157,53 @@ public class SpcController : ControllerBase
             Timestamp = DateTime.Now
         };
         
-        return await SubmitSubgroup(request);
+        var result = await SubmitSubgroup(request);
+        result.ChartType = "R";
+        return result;
     }
 
     /// <summary>
-    /// Get X-bar and R chart data
+    /// Simulate subgroup data for X-bar and S chart
+    /// </summary>
+    [HttpGet("simulate-xbar-s")]
+    public async Task<XBarRChartResponse> SimulateXBarSChart(
+        [FromQuery] string machineId = "M001", 
+        [FromQuery] string itemName = "Thickness",
+        [FromQuery] int subgroupSize = 5)
+    {
+        // Generate subgroup data
+        double targetMean = 100.0;
+        double targetStdDev = 2.0;
+        
+        var values = _spcService.GenerateSubgroupValues(subgroupSize, targetMean, targetStdDev);
+        
+        var request = new SubgroupRequest
+        {
+            MachineId = machineId,
+            ItemName = itemName,
+            Values = values,
+            Timestamp = DateTime.Now
+        };
+        
+        var result = await SubmitSubgroup(request);
+        result.ChartType = "S";
+        return result;
+    }
+
+    /// <summary>
+    /// Get X-bar and R chart data or X-bar and S chart data
     /// </summary>
     [HttpGet("xbar-r-data")]
     public async Task<XBarRChartResponse> GetXBarRChartData(
         [FromQuery] string machineId = "M001", 
         [FromQuery] string itemName = "Thickness",
         [FromQuery] int subgroupSize = 5,
-        [FromQuery] int numSubgroups = 20)
+        [FromQuery] int numSubgroups = 15,
+        [FromQuery] string chartType = "R")
     {
-        return await CalculateXBarRChart(machineId, itemName, subgroupSize, numSubgroups);
+        var result = await CalculateXBarRChart(machineId, itemName, subgroupSize, numSubgroups);
+        result.ChartType = chartType;
+        return result;
     }
 
     private async Task<XBarRChartResponse> CalculateXBarRChart(string machineId, string itemName, int subgroupSize, int numSubgroups = 20)
@@ -200,12 +233,14 @@ public class SpcController : ControllerBase
             }
         }
 
-        // Calculate X-bar and R for each subgroup
+        // Calculate X-bar, R, and S for each subgroup
         var xBarValues = new List<double>();
         var rValues = new List<double>();
+        var sValues = new List<double>();
         var timestamps = new List<DateTime>();
         var xBarDataList = new List<SubgroupData>();
         var rDataList = new List<SubgroupData>();
+        var sDataList = new List<SubgroupData>();
 
         for (int i = 0; i < groupedData.Count && i < numSubgroups; i++)
         {
@@ -213,8 +248,13 @@ public class SpcController : ControllerBase
             double xBar = subgroup.Average();
             double r = subgroup.Max() - subgroup.Min();
             
+            // Calculate standard deviation for S chart
+            double sumSq = subgroup.Sum(x => Math.Pow(x - xBar, 2));
+            double s = Math.Sqrt(sumSq / (subgroupSize - 1));
+            
             xBarValues.Add(xBar);
             rValues.Add(r);
+            sValues.Add(s);
             
             var ts = allData.Count > i * subgroupSize + subgroupSize / 2 
                 ? allData[i * subgroupSize + subgroupSize / 2].Timestamp 
@@ -234,22 +274,37 @@ public class SpcController : ControllerBase
                 Value = Math.Round(r, 4),
                 Timestamp = ts
             });
+
+            sDataList.Add(new SubgroupData
+            {
+                SubgroupIndex = i + 1,
+                Value = Math.Round(s, 4),
+                Timestamp = ts
+            });
         }
 
         // Calculate R-bar (average range)
         double rBar = rValues.Average();
         
+        // Calculate S-bar (average standard deviation)
+        double sBar = sValues.Average();
+        
         // Calculate X-bar-bar (average of subgroup means)
         double xBarBar = xBarValues.Average();
 
-        // Get constants for subgroup size
+        // Get constants for R chart
         var constants = SpcService._constants.GetValueOrDefault(subgroupSize);
         double A2 = constants.A2 > 0 ? constants.A2 : 0.373; // default
         double D3 = constants.D3;
         double D4 = constants.D4 > 0 ? constants.D4 : 2.114; // default
-        double d2 = constants.d2 > 0 ? constants.d2 : 2.326; // default
 
-        // X-bar chart control limits
+        // Get constants for S chart
+        var sConstants = SpcService._sChartConstants.GetValueOrDefault(subgroupSize);
+        double B3 = sConstants.B3;
+        double B4 = sConstants.B4 > 0 ? sConstants.B4 : 2.089; // default
+        double c4 = sConstants.c4 > 0 ? sConstants.c4 : 0.94; // default
+
+        // X-bar chart control limits (using S-bar)
         double xBarUcl = xBarBar + A2 * rBar;
         double xBarLcl = xBarBar - A2 * rBar;
 
@@ -257,12 +312,17 @@ public class SpcController : ControllerBase
         double rUcl = D4 * rBar;
         double rLcl = D3 * rBar;
 
+        // S chart control limits
+        double sUcl = B4 * sBar;
+        double sLcl = B3 * sBar;
+
         // Check rules
         var xBarRules = _spcService.CheckXBarRules(xBarValues, xBarBar, rBar, subgroupSize);
         var rRules = _spcService.CheckRRules(rValues, rBar, subgroupSize);
+        var sRules = _spcService.CheckSRules(sValues, sBar, subgroupSize);
 
-        // Calculate estimated sigma
-        double estimatedSigma = rBar / d2;
+        // Calculate estimated sigma using c4
+        double estimatedSigma = sBar / c4;
 
         // Calculate CPK (using estimated sigma)
         double? xBarCpk = null;
@@ -288,6 +348,14 @@ public class SpcController : ControllerBase
         response.RUcl = Math.Round(rUcl, 4);
         response.RLcl = Math.Round(rLcl, 4);
         response.RData = rDataList;
+
+        // S chart response
+        response.SStatus = sRules.Count > 0 ? "OUT_OF_CONTROL" : "OK";
+        response.SRules = sRules;
+        response.SMean = Math.Round(sBar, 4);
+        response.SUcl = Math.Round(sUcl, 4);
+        response.SLcl = Math.Round(sLcl, 4);
+        response.SData = sDataList;
 
         response.OverallMean = Math.Round(xBarBar, 4);
         response.OverallSigma = Math.Round(estimatedSigma, 4);

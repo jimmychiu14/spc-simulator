@@ -14,6 +14,13 @@
         <input v-model="itemName" type="text" placeholder="Thickness" />
       </div>
       <div class="input-group">
+        <label>Chart Type:</label>
+        <select v-model="chartType">
+          <option value="R">X-bar + R</option>
+          <option value="S">X-bar + S</option>
+        </select>
+      </div>
+      <div class="input-group">
         <label>Subgroup Size (n):</label>
         <select v-model.number="subgroupSize">
           <option :value="3">3</option>
@@ -25,7 +32,7 @@
         </select>
       </div>
       <button @click="simulateXBarR" :disabled="loading">
-        {{ loading ? 'Processing...' : '🎲 Simulate X-bar + R' }}
+        {{ loading ? 'Processing...' : '🎲 Simulate' }}
       </button>
     </div>
 
@@ -67,35 +74,69 @@
       <v-chart class="chart" :option="xBarChartOption" autoresize />
     </div>
 
-    <!-- R Chart Status -->
-    <div v-if="xbarRData" class="status" :class="xbarRData.rStatus.toLowerCase()">
-      <span class="status-label">R Chart Status:</span>
-      <span class="status-value">{{ xbarRData.rStatus }}</span>
-      <span v-if="xbarRData.rRules?.length" class="rules">
-        ({{ xbarRData.rRules.join(', ') }})
-      </span>
-    </div>
+    <!-- R Chart (show when chartType = R) -->
+    <template v-if="chartType === 'R'">
+      <div v-if="xbarRData" class="status" :class="xbarRData.rStatus.toLowerCase()">
+        <span class="status-label">R Chart Status:</span>
+        <span class="status-value">{{ xbarRData.rStatus }}</span>
+        <span v-if="xbarRData.rRules?.length" class="rules">
+          ({{ xbarRData.rRules.join(', ') }})
+        </span>
+      </div>
 
-    <!-- R Chart Stats -->
-    <div class="stats" v-if="xbarRData">
-      <div class="stat">
-        <span class="label">R̅ (Avg Range):</span>
-        <span class="value">{{ xbarRData.rMean }}</span>
+      <!-- R Chart Stats -->
+      <div class="stats" v-if="xbarRData">
+        <div class="stat">
+          <span class="label">R̅ (Avg Range):</span>
+          <span class="value">{{ xbarRData.rMean }}</span>
+        </div>
+        <div class="stat">
+          <span class="label">UCL:</span>
+          <span class="value">{{ xbarRData.rUcl }}</span>
+        </div>
+        <div class="stat">
+          <span class="label">LCL:</span>
+          <span class="value">{{ xbarRData.rLcl ?? 0 }}</span>
+        </div>
       </div>
-      <div class="stat">
-        <span class="label">UCL:</span>
-        <span class="value">{{ xbarRData.rUcl }}</span>
-      </div>
-      <div class="stat">
-        <span class="label">LCL:</span>
-        <span class="value">{{ xbarRData.rLcl ?? 0 }}</span>
-      </div>
-    </div>
 
-    <!-- R Chart -->
-    <div class="chart-container">
-      <v-chart class="chart" :option="rChartOption" autoresize />
-    </div>
+      <!-- R Chart -->
+      <div class="chart-container">
+        <v-chart class="chart" :option="rChartOption" autoresize />
+      </div>
+    </template>
+
+    <!-- S Chart (show when chartType = S) -->
+    <template v-if="chartType === 'S'">
+      <div v-if="xbarRData" class="status" :class="xbarRData.sStatus.toLowerCase()">
+        <span class="status-label">S Chart Status:</span>
+        <span class="status-value">{{ xbarRData.sStatus }}</span>
+        <span v-if="xbarRData.sRules?.length" class="rules">
+          ({{ xbarRData.sRules.join(', ') }})
+        </span>
+      </div>
+
+      <!-- S Chart Stats -->
+      <div class="stats" v-if="xbarRData">
+        <div class="stat">
+          <span class="label">S̅ (Avg StdDev):</span>
+          <span class="value">{{ xbarRData.sMean }}</span>
+        </div>
+        <div class="stat">
+          <span class="label">UCL:</span>
+          <span class="value">{{ xbarRData.sUcl }}</span>
+        </div>
+        <div class="stat">
+          <span class="label">LCL:</span>
+          <span class="value">{{ xbarRData.sLcl ?? 0 }}</span>
+        </div>
+      </div>
+
+      <!-- S Chart -->
+      <div class="chart-container">
+        <v-chart class="chart" :option="sChartOption" autoresize />
+      </div>
+    </template>
 
     <!-- Legacy Single Value Chart -->
     <details class="legacy-section">
@@ -174,15 +215,18 @@ const loading = ref(false)
 const lastResult = ref(null)
 const chartData = ref([])
 
-// X-bar + R chart mode
+// X-bar + R/S chart mode
 const subgroupSize = ref(5)
+const chartType = ref('R')
 const xbarRData = ref(null)
 
-// Simulate X-bar + R chart
+// Simulate X-bar + R or X-bar + S chart
 const simulateXBarR = async () => {
   loading.value = true
   try {
-    const res = await axios.get(`${API_BASE}/api/spc/simulate-xbar-r`, {
+    // Call appropriate API based on chart type
+    const endpoint = chartType.value === 'S' ? 'simulate-xbar-s' : 'simulate-xbar-r'
+    const res = await axios.get(`${API_BASE}/api/spc/${endpoint}`, {
       params: { 
         machineId: machineId.value, 
         itemName: itemName.value,
@@ -191,13 +235,14 @@ const simulateXBarR = async () => {
     })
     xbarRData.value = res.data
     
-    // Fetch full chart data
+    // Fetch full chart data - reduced to 15 subgroups for cleaner display
     const dataRes = await axios.get(`${API_BASE}/api/spc/xbar-r-data`, {
       params: { 
         machineId: machineId.value, 
         itemName: itemName.value,
         subgroupSize: subgroupSize.value,
-        numSubgroups: 25
+        numSubgroups: 15,
+        chartType: chartType.value
       }
     })
     xbarRData.value = dataRes.data
@@ -277,21 +322,31 @@ const xBarChartOption = computed(() => {
   const mean = xbarRData.value.overallMean
 
   return {
-    title: { text: 'X-bar Chart (Subgroup Means)', left: 'center' },
+    title: { text: 'X-bar Chart (Subgroup Means)', left: 'center', top: 10 },
     tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', name: 'Subgroup', data: xbarRData.value.xBarData.map(d => d.subgroupIndex) },
-    yAxis: { type: 'value', name: 'X̿' },
+    grid: { top: 90, bottom: 60, left: 70, right: 50 },
+    xAxis: { 
+      type: 'category', 
+      name: 'Subgroup', 
+      nameLocation: 'middle',
+      nameGap: 35,
+      data: xbarRData.value.xBarData.map(d => d.subgroupIndex),
+      axisLabel: { interval: 0, rotate: 0, fontSize: 11 }
+    },
+    yAxis: { type: 'value', name: 'X̿', nameLocation: 'middle', nameGap: 50 },
     series: [{
       type: 'line',
       data: data.map(d => d.value[1]),
       smooth: true,
+      lineStyle: { width: 2 },
       markLine: {
         silent: true,
         symbol: 'none',
+        animation: false,
         data: [
-          { yAxis: ucl, label: { formatter: `UCL\n${ucl}` }, lineStyle: { color: 'red', type: 'dashed' } },
-          { yAxis: mean, label: { formatter: `CL\n${mean}` }, lineStyle: { color: 'green' } },
-          { yAxis: lcl, label: { formatter: `LCL\n${lcl}` }, lineStyle: { color: 'red', type: 'dashed' } }
+          { yAxis: ucl, label: { formatter: 'UCL', position: 'insideEndTop', color: 'red' }, lineStyle: { color: 'red', type: 'dashed', width: 1 } },
+          { yAxis: mean, label: { formatter: 'CL', position: 'middle', color: 'green' }, lineStyle: { color: 'green', type: 'solid', width: 1 } },
+          { yAxis: lcl, label: { formatter: 'LCL', position: 'insideEndBottom', color: 'red' }, lineStyle: { color: 'red', type: 'dashed', width: 1 } }
         ]
       }
     }]
@@ -307,21 +362,71 @@ const rChartOption = computed(() => {
   const mean = xbarRData.value.rMean
 
   return {
-    title: { text: 'R Chart (Range)', left: 'center' },
+    title: { text: 'R Chart (Range)', left: 'center', top: 10 },
     tooltip: { trigger: 'axis' },
-    xAxis: { type: 'category', name: 'Subgroup', data: xbarRData.value.rData.map(d => d.subgroupIndex) },
-    yAxis: { type: 'value', name: 'R' },
+    grid: { top: 90, bottom: 60, left: 70, right: 50 },
+    xAxis: { 
+      type: 'category', 
+      name: 'Subgroup', 
+      nameLocation: 'middle',
+      nameGap: 35,
+      data: xbarRData.value.rData.map(d => d.subgroupIndex),
+      axisLabel: { interval: 0, fontSize: 11 }
+    },
+    yAxis: { type: 'value', name: 'R', nameLocation: 'middle', nameGap: 50 },
     series: [{
       type: 'line',
       data: xbarRData.value.rData.map(d => d.value),
       smooth: true,
+      lineStyle: { width: 2 },
       markLine: {
         silent: true,
         symbol: 'none',
+        animation: false,
         data: [
-          { yAxis: ucl, label: { formatter: `UCL\n${ucl}` }, lineStyle: { color: 'red', type: 'dashed' } },
-          { yAxis: mean, label: { formatter: `R̅\n${mean}` }, lineStyle: { color: 'green' } },
-          { yAxis: lcl, label: { formatter: `LCL\n${lcl}` }, lineStyle: { color: 'red', type: 'dashed' } }
+          { yAxis: ucl, label: { formatter: 'UCL', position: 'insideEndTop', color: 'red' }, lineStyle: { color: 'red', type: 'dashed', width: 1 } },
+          { yAxis: mean, label: { formatter: 'R̅', position: 'middle', color: 'green' }, lineStyle: { color: 'green', type: 'solid', width: 1 } },
+          { yAxis: lcl, label: { formatter: 'LCL', position: 'insideEndBottom', color: 'red' }, lineStyle: { color: 'red', type: 'dashed', width: 1 } }
+        ]
+      }
+    }]
+  }
+})
+
+// S chart option
+const sChartOption = computed(() => {
+  if (!xbarRData.value?.sData) return {}
+  
+  const ucl = xbarRData.value.sUcl
+  const lcl = xbarRData.value.sLcl || 0
+  const mean = xbarRData.value.sMean
+
+  return {
+    title: { text: 'S Chart (Standard Deviation)', left: 'center', top: 10 },
+    tooltip: { trigger: 'axis' },
+    grid: { top: 90, bottom: 60, left: 70, right: 50 },
+    xAxis: { 
+      type: 'category', 
+      name: 'Subgroup', 
+      nameLocation: 'middle',
+      nameGap: 35,
+      data: xbarRData.value.sData.map(d => d.subgroupIndex),
+      axisLabel: { interval: 0, fontSize: 11 }
+    },
+    yAxis: { type: 'value', name: 'S', nameLocation: 'middle', nameGap: 50 },
+    series: [{
+      type: 'line',
+      data: xbarRData.value.sData.map(d => d.value),
+      smooth: true,
+      lineStyle: { width: 2 },
+      markLine: {
+        silent: true,
+        symbol: 'none',
+        animation: false,
+        data: [
+          { yAxis: ucl, label: { formatter: 'UCL', position: 'insideEndTop', color: 'red' }, lineStyle: { color: 'red', type: 'dashed', width: 1 } },
+          { yAxis: mean, label: { formatter: 'S̅', position: 'middle', color: 'green' }, lineStyle: { color: 'green', type: 'solid', width: 1 } },
+          { yAxis: lcl, label: { formatter: 'LCL', position: 'insideEndBottom', color: 'red' }, lineStyle: { color: 'red', type: 'dashed', width: 1 } }
         ]
       }
     }]
@@ -420,7 +525,7 @@ button:disabled { background: #95a5a6; }
   margin-bottom: 30px;
 }
 
-.chart { height: 350px; width: 100%; }
+.chart { height: 450px; width: 100%; }
 
 .legacy-section {
   margin-top: 40px;

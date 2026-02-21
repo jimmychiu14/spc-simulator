@@ -42,7 +42,7 @@ public class JudgeResponse
 }
 
 /// <summary>
-/// Response for X-bar and R chart
+/// Response for X-bar and R chart or X-bar and S chart
 /// </summary>
 public class XBarRChartResponse
 {
@@ -62,6 +62,17 @@ public class XBarRChartResponse
     public double? RUcl { get; set; }
     public double? RLcl { get; set; }
     public List<SubgroupData> RData { get; set; } = new();
+
+    // S chart data (standard deviation)
+    public string SStatus { get; set; } = "OK";
+    public List<string> SRules { get; set; } = new();
+    public double? SMean { get; set; }
+    public double? SUcl { get; set; }
+    public double? SLcl { get; set; }
+    public List<SubgroupData> SData { get; set; } = new();
+
+    // Chart type: "R" or "S"
+    public string ChartType { get; set; } = "R";
 
     // Combined stats
     public double? OverallMean { get; set; }

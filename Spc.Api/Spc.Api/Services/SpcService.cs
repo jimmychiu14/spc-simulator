@@ -19,6 +19,20 @@ public class SpcService
         { 10, (0.253, 0.223, 1.777, 3.078) }
     };
 
+    // Constants for S chart (B3, B4, c4) for subgroup sizes 2-10
+    public static readonly Dictionary<int, (double B3, double B4, double c4)> _sChartConstants = new()
+    {
+        { 2, (0, 3.267, 0.7979) },
+        { 3, (0, 2.568, 0.8862) },
+        { 4, (0, 2.266, 0.9213) },
+        { 5, (0, 2.089, 0.9400) },
+        { 6, (0.030, 1.970, 0.9515) },
+        { 7, (0.118, 1.882, 0.9594) },
+        { 8, (0.185, 1.815, 0.9650) },
+        { 9, (0.239, 1.761, 0.9693) },
+        { 10, (0.284, 1.716, 0.9727) }
+    };
+
     /// <summary>
     /// Western Electric Rules (1-4 basic rules)
     /// </summary>
@@ -191,6 +205,45 @@ public class SpcService
             {
                 if (rValues[i] > rBar) above++;
                 else if (rValues[i] < rBar) below++;
+            }
+            if (above == 8 || below == 8) violatedRules.Add("Rule4");
+        }
+
+        return violatedRules.Distinct().ToList();
+    }
+
+    /// <summary>
+    /// Check rules for S chart (standard deviation chart)
+    /// </summary>
+    public List<string> CheckSRules(List<double> sValues, double sBar, int n)
+    {
+        var violatedRules = new List<string>();
+        
+        if (sValues.Count < 2) return violatedRules;
+
+        var constants = _sChartConstants.GetValueOrDefault(n);
+        double B3 = constants.B3;
+        double B4 = constants.B4;
+        
+        if (B3 == 0) B3 = 0; 
+        if (B4 == 0) B4 = 2.089; // default for n=5
+
+        double ucl = B4 * sBar;
+        double lcl = B3 * sBar;
+
+        // Rule 1: Point beyond control limits
+        var lastS = sValues[^1];
+        if (lastS > ucl || (lcl > 0 && lastS < lcl))
+            violatedRules.Add("Rule1");
+
+        // Rule 4: 8 consecutive on one side
+        if (sValues.Count >= 8)
+        {
+            int above = 0, below = 0;
+            for (int i = sValues.Count - 8; i < sValues.Count; i++)
+            {
+                if (sValues[i] > sBar) above++;
+                else if (sValues[i] < sBar) below++;
             }
             if (above == 8 || below == 8) violatedRules.Add("Rule4");
         }
