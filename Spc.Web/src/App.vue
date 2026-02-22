@@ -31,26 +31,39 @@
           <option :value="8">8</option>
         </select>
       </div>
-      <button @click="simulateXBarR" :disabled="loading">
-        {{ loading ? 'Processing...' : '🎲 Simulate' }}
-      </button>
     </div>
 
-    <!-- CSV Import Section -->
-    <div class="csv-import">
-      <h3>📁 CSV Import</h3>
-      <div class="csv-controls">
+    <!-- Data Source Selection -->
+    <div class="data-source">
+      <h3>📊 Data Source</h3>
+      <div class="source-options">
+        <label class="source-option">
+          <input type="radio" v-model="dataSource" value="simulate" />
+          <span>🎲 Simulate (Random Data)</span>
+        </label>
+        <label class="source-option">
+          <input type="radio" v-model="dataSource" value="csv" />
+          <span>📁 Upload CSV File</span>
+        </label>
+      </div>
+      
+      <!-- CSV Upload (shown when CSV is selected) -->
+      <div v-if="dataSource === 'csv'" class="csv-upload">
         <input 
           type="file" 
           accept=".csv" 
           @change="handleFileSelect" 
           :disabled="loading"
         />
-        <button @click="importCsv" :disabled="loading || !selectedFile">
-          {{ loading ? 'Importing...' : '📥 Import CSV' }}
-        </button>
+        <p class="csv-hint">CSV format: Value,Timestamp (header required)</p>
       </div>
-      <p class="csv-hint">CSV format: Value,Timestamp (header required)</p>
+
+      <!-- Generate Button -->
+      <button @click="generateChart" :disabled="loading" class="generate-btn">
+        {{ loading ? 'Processing...' : (dataSource === 'csv' ? '📥 Load CSV Data' : '🎲 Generate Chart') }}
+      </button>
+
+      <!-- Import Result -->
       <div v-if="importResult" class="import-result" :class="importResult.success ? 'success' : 'error'">
         {{ importResult.message }}
         <span v-if="importResult.recordsImported">
@@ -212,13 +225,27 @@ const subgroupSize = ref(5)
 const chartType = ref('R')
 const xbarRData = ref(null)
 
-// CSV Import
+// Data source selection
+const dataSource = ref('simulate') // 'simulate' or 'csv'
 const selectedFile = ref(null)
 const importResult = ref(null)
 
 const handleFileSelect = (event) => {
   selectedFile.value = event.target.files[0]
   importResult.value = null
+}
+
+// Unified generate function
+const generateChart = async () => {
+  if (dataSource.value === 'csv') {
+    if (!selectedFile.value) {
+      alert('Please select a CSV file first')
+      return
+    }
+    await importCsv()
+  } else {
+    await simulateXBarR()
+  }
 }
 
 const importCsv = async () => {
@@ -636,19 +663,69 @@ button:disabled { background: #95a5a6; }
   color: #2c3e50;
 }
 
-.csv-controls {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
+.data-source {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  margin-bottom: 30px;
 }
 
-.csv-controls input[type="file"] {
+.data-source h3 {
+  margin-bottom: 15px;
+  color: #2c3e50;
+}
+
+.source-options {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 15px;
+}
+
+.source-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 10px 15px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.source-option:has(input:checked) {
+  border-color: #3498db;
+  background: #f0f8ff;
+}
+
+.source-option input {
+  margin: 0;
+}
+
+.csv-upload {
+  margin-bottom: 15px;
+}
+
+.csv-upload input[type="file"] {
   padding: 8px;
   border: 1px solid #ddd;
   border-radius: 4px;
   background: white;
 }
+
+.generate-btn {
+  padding: 12px 30px;
+  background: #27ae60;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.generate-btn:hover { background: #219a52; }
+.generate-btn:disabled { background: #95a5a6; }
 
 .csv-hint {
   margin-top: 10px;
