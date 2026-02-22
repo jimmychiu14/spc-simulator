@@ -36,6 +36,29 @@
       </button>
     </div>
 
+    <!-- CSV Import Section -->
+    <div class="csv-import">
+      <h3>📁 CSV Import</h3>
+      <div class="csv-controls">
+        <input 
+          type="file" 
+          accept=".csv" 
+          @change="handleFileSelect" 
+          :disabled="loading"
+        />
+        <button @click="importCsv" :disabled="loading || !selectedFile">
+          {{ loading ? 'Importing...' : '📥 Import CSV' }}
+        </button>
+      </div>
+      <p class="csv-hint">CSV format: Value,Timestamp (header required)</p>
+      <div v-if="importResult" class="import-result" :class="importResult.success ? 'success' : 'error'">
+        {{ importResult.message }}
+        <span v-if="importResult.recordsImported">
+          - {{ importResult.recordsImported }} records, {{ importResult.subgroupsCreated }} subgroups
+        </span>
+      </div>
+    </div>
+
     <!-- X-bar Chart Status -->
     <div v-if="xbarRData" class="status" :class="xbarRData.xBarStatus.toLowerCase()">
       <span class="status-label">X-bar Status:</span>
@@ -48,7 +71,7 @@
     <!-- X-bar Stats -->
     <div class="stats" v-if="xbarRData">
       <div class="stat">
-        <span class="label">X̿ (Mean):</span>
+        <span class="label">x̅ (Mean):</span>
         <span class="value">{{ xbarRData.overallMean }}</span>
       </div>
       <div class="stat">
@@ -138,59 +161,28 @@
       </div>
     </template>
 
-    <!-- Legacy Single Value Chart -->
-    <details class="legacy-section">
-      <summary>📊 Legacy X-bar Chart (Single Values)</summary>
-      
-      <div class="controls">
-        <div class="input-group">
-          <label>Machine ID:</label>
-          <input v-model="machineId" type="text" placeholder="M001" />
-        </div>
-        <div class="input-group">
-          <label>Item:</label>
-          <input v-model="itemName" type="text" placeholder="Thickness" />
-        </div>
-        <button @click="simulate" :disabled="loading">
-          {{ loading ? 'Processing...' : '🎲 Simulate' }}
-        </button>
-      </div>
-
-      <div v-if="lastResult" class="status" :class="lastResult.status.toLowerCase()">
-        <span class="status-label">Status:</span>
-        <span class="status-value">{{ lastResult.status }}</span>
-        <span v-if="lastResult.ruleViolated?.length" class="rules">
-          ({{ lastResult.ruleViolated.join(', ') }})
-        </span>
-      </div>
-
-      <div class="stats" v-if="lastResult">
-        <div class="stat">
-          <span class="label">Mean:</span>
-          <span class="value">{{ lastResult.mean }}</span>
-        </div>
-        <div class="stat">
-          <span class="label">StdDev:</span>
-          <span class="value">{{ lastResult.stdDev }}</span>
-        </div>
-        <div class="stat">
-          <span class="label">UCL:</span>
-          <span class="value">{{ lastResult.ucl }}</span>
-        </div>
-        <div class="stat">
-          <span class="label">LCL:</span>
-          <span class="value">{{ lastResult.lcl }}</span>
-        </div>
-        <div class="stat">
-          <span class="label">CPK:</span>
-          <span class="value">{{ lastResult.cpk }}</span>
-        </div>
-      </div>
-
-      <div class="chart-container">
-        <v-chart class="chart" :option="chartOption" autoresize />
-      </div>
-    </details>
+    <!-- Data Table -->
+    <div v-if="xbarRData" class="data-table-container">
+      <h3>📋 Data Table</h3>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Subgroup</th>
+            <th v-if="chartType === 'R'">Range (R)</th>
+            <th v-if="chartType === 'S'">StdDev (S)</th>
+            <th>Mean (x̅)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="i in (xbarRData.xBarData?.length || 0)" :key="i">
+            <td>{{ i }}</td>
+            <td v-if="chartType === 'R'">{{ xbarRData.rData?.[i-1]?.value?.toFixed(4) }}</td>
+            <td v-if="chartType === 'S'">{{ xbarRData.sData?.[i-1]?.value?.toFixed(4) }}</td>
+            <td>{{ xbarRData.xBarData?.[i-1]?.value?.toFixed(4) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 
@@ -219,6 +211,53 @@ const chartData = ref([])
 const subgroupSize = ref(5)
 const chartType = ref('R')
 const xbarRData = ref(null)
+
+// CSV Import
+const selectedFile = ref(null)
+const importResult = ref(null)
+
+const handleFileSelect = (event) => {
+  selectedFile.value = event.target.files[0]
+  importResult.value = null
+}
+
+const importCsv = async () => {
+  if (!selectedFile.value) return
+  
+  loading.value = true
+  importResult.value = null
+  
+  try {
+    const formData = new FormData()
+    formData.append('file', selectedFile.value)
+    
+    const res = await axios.post(`${API_BASE}/api/spc/import-csv`, formData, {
+      params: { 
+        machineId: machineId.value, 
+        itemName: itemName.value,
+        subgroupSize: subgroupSize.value
+      },
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+    
+    importResult.value = res.data
+    
+    // Refresh chart data after import
+    if (res.data.success) {
+      await simulateXBarR()
+    }
+  } catch (e) {
+    console.error(e)
+    importResult.value = {
+      success: false,
+      message: 'Import failed: ' + e.message
+    }
+  } finally {
+    loading.value = false
+  }
+}
 
 // Simulate X-bar + R or X-bar + S chart
 const simulateXBarR = async () => {
@@ -333,7 +372,14 @@ const xBarChartOption = computed(() => {
       data: xbarRData.value.xBarData.map(d => d.subgroupIndex),
       axisLabel: { interval: 0, rotate: 0, fontSize: 11 }
     },
-    yAxis: { type: 'value', name: 'X̿', nameLocation: 'middle', nameGap: 50 },
+    yAxis: { 
+      type: 'value', 
+      name: 'x̅', 
+      nameLocation: 'middle', 
+      nameGap: 50,
+      min: (value) => Math.floor(value.min - (value.max - value.min) * 0.1),
+      max: (value) => Math.ceil(value.max + (value.max - value.min) * 0.1)
+    },
     series: [{
       type: 'line',
       data: data.map(d => d.value[1]),
@@ -373,7 +419,14 @@ const rChartOption = computed(() => {
       data: xbarRData.value.rData.map(d => d.subgroupIndex),
       axisLabel: { interval: 0, fontSize: 11 }
     },
-    yAxis: { type: 'value', name: 'R', nameLocation: 'middle', nameGap: 50 },
+    yAxis: { 
+      type: 'value', 
+      name: 'R', 
+      nameLocation: 'middle', 
+      nameGap: 50,
+      min: (value) => Math.max(0, Math.floor(value.min - (value.max - value.min) * 0.1)),
+      max: (value) => Math.ceil(value.max + (value.max - value.min) * 0.1)
+    },
     series: [{
       type: 'line',
       data: xbarRData.value.rData.map(d => d.value),
@@ -413,7 +466,14 @@ const sChartOption = computed(() => {
       data: xbarRData.value.sData.map(d => d.subgroupIndex),
       axisLabel: { interval: 0, fontSize: 11 }
     },
-    yAxis: { type: 'value', name: 'S', nameLocation: 'middle', nameGap: 50 },
+    yAxis: { 
+      type: 'value', 
+      name: 'S', 
+      nameLocation: 'middle', 
+      nameGap: 50,
+      min: (value) => Math.max(0, Math.floor(value.min - (value.max - value.min) * 0.1)),
+      max: (value) => Math.ceil(value.max + (value.max - value.min) * 0.1)
+    },
     series: [{
       type: 'line',
       data: xbarRData.value.sData.map(d => d.value),
@@ -526,6 +586,92 @@ button:disabled { background: #95a5a6; }
 }
 
 .chart { height: 450px; width: 100%; }
+
+.data-table-container {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  margin-top: 20px;
+}
+
+.data-table-container h3 {
+  margin-bottom: 15px;
+  color: #2c3e50;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 10px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+}
+
+.data-table th {
+  background: #f8f9fa;
+  font-weight: 600;
+  color: #495057;
+}
+
+.data-table tbody tr:hover {
+  background: #f8f9fa;
+}
+
+.csv-import {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  margin-bottom: 30px;
+}
+
+.csv-import h3 {
+  margin-bottom: 15px;
+  color: #2c3e50;
+}
+
+.csv-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.csv-controls input[type="file"] {
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+}
+
+.csv-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #666;
+}
+
+.import-result {
+  margin-top: 15px;
+  padding: 12px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+.import-result.success {
+  background: #d4edda;
+  color: #155724;
+}
+
+.import-result.error {
+  background: #f8d7da;
+  color: #721c24;
+}
 
 .legacy-section {
   margin-top: 40px;

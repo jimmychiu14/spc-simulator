@@ -93,3 +93,15 @@ public class ControlLimit
     public double CL { get; set; }
     public double LCL { get; set; }
 }
+
+/// <summary>
+/// CSV Import Result
+/// </summary>
+public class ImportResult
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public int RecordsImported { get; set; }
+    public int SubgroupsCreated { get; set; }
+    public List<string> Errors { get; set; } = new();
+}

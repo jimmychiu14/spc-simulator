@@ -362,4 +362,147 @@ public class SpcController : ControllerBase
 
         return response;
     }
+
+    /// <summary>
+    /// Import CSV data for X-bar chart analysis
+    /// CSV format: Value,Timestamp (header required)
+    /// </summary>
+    [HttpPost("import-csv")]
+    public async Task<ImportResult> ImportCsv(
+        IFormFile file,
+        [FromQuery] string machineId = "M001",
+        [FromQuery] string itemName = "Thickness",
+        [FromQuery] int subgroupSize = 5)
+    {
+        var result = new ImportResult();
+
+        if (file == null || file.Length == 0)
+        {
+            result.Success = false;
+            result.Message = "No file uploaded";
+            return result;
+        }
+
+        try
+        {
+            using var reader = new StreamReader(file.OpenReadStream());
+            var lines = new List<string>();
+            while (!reader.EndOfStream)
+            {
+                var line = await reader.ReadLineAsync();
+                if (!string.IsNullOrWhiteSpace(line))
+                    lines.Add(line);
+            }
+
+            if (lines.Count < 2)
+            {
+                result.Success = false;
+                result.Message = "CSV file must have header and at least one data row";
+                return result;
+            }
+
+            // Parse header
+            var header = lines[0].ToLower().Split(',').Select(h => h.Trim()).ToArray();
+            
+            // Find column indices
+            int valueIndex = Array.IndexOf(header, "value");
+            int timestampIndex = Array.IndexOf(header, "timestamp");
+
+            if (valueIndex < 0)
+            {
+                result.Success = false;
+                result.Message = "CSV must have a 'Value' column";
+                return result;
+            }
+
+            // Parse data
+            var values = new List<double>();
+            var timestamps = new List<DateTime>();
+            var errors = new List<string>();
+
+            for (int i = 1; i < lines.Count; i++)
+            {
+                try
+                {
+                    var cols = lines[i].Split(',');
+                    if (cols.Length <= valueIndex) continue;
+
+                    if (!double.TryParse(cols[valueIndex].Trim(), out double value))
+                    {
+                        errors.Add($"Row {i + 1}: Invalid value '{cols[valueIndex]}'");
+                        continue;
+                    }
+
+                    values.Add(value);
+
+                    // Parse timestamp if available
+                    DateTime timestamp = DateTime.Now;
+                    if (timestampIndex >= 0 && cols.Length > timestampIndex)
+                    {
+                        if (DateTime.TryParse(cols[timestampIndex].Trim(), out DateTime parsedTs))
+                        {
+                            timestamp = parsedTs;
+                        }
+                    }
+                    timestamps.Add(timestamp);
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"Row {i + 1}: {ex.Message}");
+                }
+            }
+
+            if (values.Count == 0)
+            {
+                result.Success = false;
+                result.Message = "No valid data rows found";
+                result.Errors = errors;
+                return result;
+            }
+
+            // Group values into subgroups
+            int subgroupCount = (int)Math.Ceiling((double)values.Count / subgroupSize);
+            int recordCount = 0;
+
+            for (int sg = 0; sg < subgroupCount; sg++)
+            {
+                var subgroupValues = values.Skip(sg * subgroupSize).Take(subgroupSize).ToList();
+                var subgroupTimestamps = timestamps.Skip(sg * subgroupSize).Take(subgroupSize).ToList();
+
+                // Use middle timestamp for the subgroup
+                var timestamp = subgroupTimestamps.Count > 0 
+                    ? subgroupTimestamps[subgroupTimestamps.Count / 2] 
+                    : DateTime.Now;
+
+                // Save each measurement
+                for (int j = 0; j < subgroupValues.Count; j++)
+                {
+                    var measurement = new Measurement
+                    {
+                        MachineId = machineId,
+                        ItemName = itemName,
+                        Value = subgroupValues[j],
+                        Timestamp = timestamp,
+                        SubgroupIndex = j
+                    };
+                    await _repository.AddMeasurementAsync(measurement);
+                    recordCount++;
+                }
+            }
+
+            result.Success = true;
+            result.Message = $"Successfully imported {recordCount} records into {subgroupCount} subgroups";
+            result.RecordsImported = recordCount;
+            result.SubgroupsCreated = subgroupCount;
+            result.Errors = errors;
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Message = $"Error processing CSV: {ex.Message}";
+            return result;
+        }
+    }
 }
