@@ -101,4 +101,27 @@ public class SpcRepository
         
         return (0, 0, null, null);
     }
+
+    public async Task<int> ClearMeasurementsAsync(string? machineId = null, string? itemName = null)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+
+        string sql;
+        if (!string.IsNullOrEmpty(machineId) && !string.IsNullOrEmpty(itemName))
+        {
+            sql = "DELETE FROM Measurements WHERE MachineId = @MachineId AND ItemName = @ItemName";
+            return await connection.ExecuteAsync(sql, new { MachineId = machineId, ItemName = itemName });
+        }
+        else if (!string.IsNullOrEmpty(machineId))
+        {
+            sql = "DELETE FROM Measurements WHERE MachineId = @MachineId";
+            return await connection.ExecuteAsync(sql, new { MachineId = machineId });
+        }
+        else
+        {
+            sql = "DELETE FROM Measurements";
+            return await connection.ExecuteAsync(sql);
+        }
+    }
 }

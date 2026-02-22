@@ -59,9 +59,14 @@
       </div>
 
       <!-- Generate Button -->
-      <button @click="generateChart" :disabled="loading" class="generate-btn">
-        {{ loading ? 'Processing...' : (dataSource === 'csv' ? '📥 Load CSV Data' : '🎲 Generate Chart') }}
-      </button>
+      <div class="button-row">
+        <button @click="generateChart" :disabled="loading" class="generate-btn">
+          {{ loading ? 'Processing...' : (dataSource === 'csv' ? '📥 Load CSV Data' : '🎲 Generate Chart') }}
+        </button>
+        <button @click="clearData" :disabled="loading" class="clear-btn">
+          🗑️ Clear Data
+        </button>
+      </div>
 
       <!-- Import Result -->
       <div v-if="importResult" class="import-result" :class="importResult.success ? 'success' : 'error'">
@@ -245,6 +250,30 @@ const generateChart = async () => {
     await importCsv()
   } else {
     await simulateXBarR()
+  }
+}
+
+// Clear data
+const clearData = async () => {
+  if (!confirm('Are you sure you want to delete all data for this Machine ID and Item?')) {
+    return
+  }
+  
+  loading.value = true
+  try {
+    const res = await axios.delete(`${API_BASE}/api/spc/data`, {
+      params: { 
+        machineId: machineId.value, 
+        itemName: itemName.value
+      }
+    })
+    alert(res.data.message)
+    xbarRData.value = null
+  } catch (e) {
+    console.error(e)
+    alert('Failed to clear data: ' + e.message)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -726,6 +755,26 @@ button:disabled { background: #95a5a6; }
 
 .generate-btn:hover { background: #219a52; }
 .generate-btn:disabled { background: #95a5a6; }
+
+.clear-btn {
+  padding: 12px 20px;
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.clear-btn:hover { background: #c0392b; }
+.clear-btn:disabled { background: #95a5a6; }
+
+.button-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 15px;
+}
 
 .csv-hint {
   margin-top: 10px;

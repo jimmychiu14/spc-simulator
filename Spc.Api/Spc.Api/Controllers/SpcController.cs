@@ -505,4 +505,28 @@ public class SpcController : ControllerBase
             return result;
         }
     }
+
+    /// <summary>
+    /// Clear all measurement data or data for specific machine/item
+    /// </summary>
+    [HttpDelete("data")]
+    public async Task<object> ClearData(
+        [FromQuery] string? machineId = null,
+        [FromQuery] string? itemName = null)
+    {
+        int deleted = await _repository.ClearMeasurementsAsync(machineId, itemName);
+        
+        if (!string.IsNullOrEmpty(machineId) && !string.IsNullOrEmpty(itemName))
+        {
+            return new { success = true, message = $"Deleted {deleted} records for {machineId}/{itemName}" };
+        }
+        else if (!string.IsNullOrEmpty(machineId))
+        {
+            return new { success = true, message = $"Deleted {deleted} records for {machineId}" };
+        }
+        else
+        {
+            return new { success = true, message = $"Deleted all {deleted} records" };
+        }
+    }
 }
